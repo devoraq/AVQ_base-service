@@ -28,12 +28,3 @@ export interface IRpcContext<Req = unknown, Res = unknown> {
 	 */
 	out?: { headers?: Metadata; trailers?: Metadata };
 }
-
-export type TRpcMiddleware<Req = unknown, Res = unknown> = (
-	ctx: IRpcContext<Req, Res>,
-	next: () => Promise<void>
-) => Promise<void>;
-
-export type TRpcController<Req = unknown, Res = unknown> = (
-	ctx: IRpcContext<Req, Res>
-) => Promise<Res>;

@@ -3,30 +3,13 @@
  * @module core/base
  *
  * @description
- * Базовый абстрактный класс для gRPC-роутеров с поддержкой middleware
- * до и после выполнения контроллера. Служит фундаментом для системных
- * и прикладных роутеров.
+ * Базовый абстрактный класс для gRPC-роутеров:
+ * - поддержка before/after middleware,
+ * - регистрация одиночных методов,
+ * - монтирование контроллеров с множеством методов,
+ * - адаптация в gRPC unary handlers и сборка целого service-impl.
  *
- * Возможности:
- * - Регистрация middleware-функций и модулей (до/после запроса)
- * - Регистрация контроллеров по имени метода
- * - Адаптация в gRPC unary handler
- *
- * Примечания:
- * - Результат контроллера сохраняется в `ctx.state.__response` и доступен
- *   для post-middleware. После выполнения post-цепочки ответ отправляется клиенту.
- *
- * @extends BaseModule
- *
- * @see BaseModule
- * @see EModuleType
- *
- * @example
- * class SomeCustomRouter extends RouterModule {
- *   constructor() {
- *     super('SomeRouter');
- *   }
- * }
+ * Результат контроллера кладётся в `ctx.state.__response`, доступен для after-middleware.
  */
 
 /**
@@ -36,73 +19,62 @@ import {
 	type handleUnaryCall,
 	type ServiceError,
 	Metadata,
-	status as GrpcStatus
+	status as GrpcStatus,
+	type UntypedServiceImplementation
 } from '@grpc/grpc-js';
 
 /**
  * ! my imports
  */
-import { BaseModule } from '@core/base/Base.module';
-import { MiddlewareModule } from '@core/base/Middleware.module';
+import { BaseModule, MiddlewareModule } from '@core/base';
 import {
 	EModuleType,
 	type IRpcContext,
-	type TRpcController,
 	type TMiddlewareHandle,
-	type IMiddlewareModule
+	type IMiddlewareModule,
+	type TControllerMethod
 } from '@core/types';
 
-/**
- * Фаза исполнения middleware.
- */
+/** Фаза исполнения middleware. */
 type TMiddlewarePhase = 'before' | 'after';
 
-/**
- * Допустимый тип входной мидлвары:
- * - инстанс MiddlewareModule
- * - «сырая» функция-обработчик
- */
+/** Допустимые типы входной мидлвары. */
 type TAcceptableMiddleware<Req = unknown, Res = unknown> =
 	| MiddlewareModule<Req, Res>
 	| IMiddlewareModule<Req, Res>
 	| TMiddlewareHandle<Req, Res>;
 
-/**
- * Нормализация мидлвары к единой сигнатуре handle(ctx, next).
- */
+/** Нормализация мидлвары к единой сигнатуре handle(ctx, next). */
 function normalizeMiddleware<Req, Res>(
 	mw: TAcceptableMiddleware<Req, Res>
 ): TMiddlewareHandle<Req, Res> {
 	if (typeof mw === 'function') return mw;
-	// инстанс класса с полем handle
 	return (mw as IMiddlewareModule<Req, Res>).handle.bind(mw);
 }
 
 /**
- * Абстрактный класс, описывающий базовые свойства всех роутеров: тип и имя роутера.
- * Используется как фундамент для логгирования и архитектурного разграничения.
+ * Абстрактный класс gRPC-роутера.
  */
 export abstract class RouterModule extends BaseModule {
+	/** Полное имя сервиса (package.Service) для логов/контекста. */
 	readonly prefix: string;
 
 	private beforeMiddlewares: Array<TMiddlewareHandle> = [];
 	private afterMiddlewares: Array<TMiddlewareHandle> = [];
 
-	private routes = new Map<string, TRpcController>();
+	/** Реестр методов: имя → контроллер */
+	private routes = new Map<string, TControllerMethod>();
 
 	/**
-	 * @param moduleName Название роутера (для лог-контекста)
-	 * @param prefix Полное имя сервиса (package.Service), например: "user.UserService"
+	 * @param moduleName Имя роутера (для лог-контекста)
+	 * @param prefix Полное имя сервиса (например, "user.UserService")
 	 */
 	protected constructor(moduleName: string, prefix: string) {
 		super(EModuleType.ROUTER, moduleName);
 		this.prefix = prefix;
 	}
-	/**
-	 * Регистрация middleware.
-	 * @param mw Мидлвара (модуль или функция)
-	 * @param phase Фаза исполнения: 'before' (по умолчанию) или 'after'
-	 */
+
+	/** Зарегистрировать middleware (по умолчанию в фазе 'before'). */
 	public use<Req, Res>(
 		mw: TAcceptableMiddleware<Req, Res>,
 		phase: TMiddlewarePhase = 'before'
@@ -113,34 +85,29 @@ export abstract class RouterModule extends BaseModule {
 		return this;
 	}
 
-	/**
-	 * Сахар: регистрация before-middleware.
-	 */
 	public useBefore<Req, Res>(mw: TAcceptableMiddleware<Req, Res>): this {
 		return this.use(mw, 'before');
 	}
 
-	/**
-	 * Сахар: регистрация after-middleware.
-	 */
 	public useAfter<Req, Res>(mw: TAcceptableMiddleware<Req, Res>): this {
 		return this.use(mw, 'after');
 	}
 
-	/**
-	 * Регистрация контроллера для конкретного метода.
-	 */
+	/** Зарегистрировать одиночный метод контроллера. */
 	public handle<Req, Res>(
 		methodName: string,
-		controller: TRpcController<Req, Res>
+		controller: TControllerMethod<Req, Res>
 	): this {
-		this.routes.set(methodName, controller as TRpcController);
+		this.routes.set(methodName, controller as TControllerMethod);
 		return this;
 	}
 
-	/**
-	 * Создаёт gRPC unary handler для указанного метода.
-	 */
+	/** Список зарегистрированных имён методов. */
+	public listMethods(): string[] {
+		return Array.from(this.routes.keys());
+	}
+
+	/** Создать gRPC unary handler для конкретного метода. */
 	public toUnaryHandler<Req, Res>(
 		methodName: string
 	): handleUnaryCall<Req, Res> {
@@ -148,10 +115,7 @@ export abstract class RouterModule extends BaseModule {
 
 		if (!controller) {
 			this.error(`No controller registered for ${this.prefix}/${methodName}`, {
-				details: {
-					service: this.prefix,
-					method: methodName
-				}
+				details: { service: this.prefix, method: methodName }
 			});
 			throw new Error(
 				`No controller registered for ${this.prefix}/${methodName}`
@@ -167,7 +131,6 @@ export abstract class RouterModule extends BaseModule {
 				state: {}
 			};
 
-			// исполняет цепочку мидлвар
 			const runChain = async (chain: TMiddlewareHandle<Req, Res>[]) => {
 				let idx = -1;
 				const runner = async (i: number): Promise<void> => {
@@ -180,50 +143,54 @@ export abstract class RouterModule extends BaseModule {
 			};
 
 			try {
-				// уважать отмену до начала обработки
 				if (call.cancelled) {
-					const err: ServiceError = Object.assign(new Error('Cancelled'), {
+					const err = Object.assign(new Error('Cancelled'), {
 						code: GrpcStatus.CANCELLED
 					});
 					callback(err, null as unknown as Res);
 					return;
 				}
 
-				// 1) before-цепочка
 				if (this.beforeMiddlewares.length) {
 					await runChain(
 						this.beforeMiddlewares as TMiddlewareHandle<Req, Res>[]
 					);
 				}
 
-				// 2) контроллер
-				const result = await (controller as TRpcController<Req, Res>)(ctx);
-				// делаем доступным для after-мидлвар
+				const result = await (controller as TControllerMethod<Req, Res>)(ctx);
+
 				(ctx.state as any).__response = result;
 
-				// 3) after-цепочка
 				if (this.afterMiddlewares.length) {
 					await runChain(
 						this.afterMiddlewares as TMiddlewareHandle<Req, Res>[]
 					);
 				}
 
-				// 4) успех
 				callback(null, result);
 			} catch (e: any) {
 				const code =
 					Number.isInteger(e?.code) && e.code >= 0
 						? e.code
 						: GrpcStatus.UNKNOWN;
-				const err: ServiceError = Object.assign(
-					new Error(e?.message ?? 'Internal error'),
-					{
-						code,
-						details: e?.details
-					}
-				);
+				const err = Object.assign(new Error(e?.message ?? 'Internal error'), {
+					code,
+					details: e?.details
+				});
 				callback(err, null as unknown as Res);
 			}
 		}) as handleUnaryCall<Req, Res>;
+	}
+
+	/**
+	 * Собрать реализацию gRPC-сервиса для всех зарегистрированных методов.
+	 * Возвращает объект { methodName: toUnaryHandler(methodName), ... }.
+	 */
+	public asServiceImpl(): UntypedServiceImplementation {
+		const impl: Record<string, unknown> = {};
+		for (const name of this.routes.keys()) {
+			impl[name] = this.toUnaryHandler(name);
+		}
+		return impl as UntypedServiceImplementation;
 	}
 }

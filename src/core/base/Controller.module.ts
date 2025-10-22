@@ -24,7 +24,7 @@
  * ! my imports
  */
 import { BaseModule } from '@core/base/Base.module';
-import { EModuleType, type TRpcController } from '@core/types';
+import { EModuleType } from '@core/types';
 
 /**
  * Абстрактный класс, описывающий базовые свойства всех контроллеров: тип и имя контроллера.
@@ -37,9 +37,4 @@ export abstract class ControllerModule extends BaseModule {
 	protected constructor(moduleName: string) {
 		super(EModuleType.CONTROLLER, moduleName);
 	}
-
-	/**
-	 * Метод контроллера.
-	 */
-	abstract handle: TRpcController;
 }

@@ -10,5 +10,6 @@
  * @author Dmytro Shakh
  */
 
+export * from './database.config';
 export * from './logger.config';
 export * from './server.config';

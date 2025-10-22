@@ -30,7 +30,7 @@ import {
 /**
  * ! my imports
  */
-import { BaseModule } from '@core/base';
+import { BaseModule, OrmDatabaseModule } from '@core/base';
 import { EModuleType } from '@core/types';
 import { SERVER_CONFIG } from '@config';
 
@@ -69,8 +69,22 @@ export class App extends BaseModule {
 	private readonly gracefulMs: number = SERVER_CONFIG.GRACEFUL_MS;
 	private readonly creds: ServerCredentials;
 
-	private inited = false;
+	/**
+	 * Флаг инициализации роутеров (initRouters).
+	 * Устанавливается в true после успешного вызова initRouters.
+	 */
+	private initedRouters = false;
+	/**
+	 * Флаг инициализации БД (connect).
+	 * Устанавливается в true после успешного вызова connect.
+	 */
+	private initedDatabases = false;
+	/**
+	 * Флаг запуска приложения (start).
+	 * Устанавливается в true после успешного вызова start.
+	 */
 	private started = false;
+	private orms: Array<OrmDatabaseModule> = [];
 
 	public constructor(opts: AppOptions = {}) {
 		super(EModuleType.SYSTEM, App.name);
@@ -120,15 +134,37 @@ export class App extends BaseModule {
 	 * Повторный вызов безопасен, но услуги монтируются только один раз.
 	 */
 	initRouters(): this {
-		if (this.inited) return this;
+		if (this.initedRouters) return this;
 
 		for (const svc of this.services) {
 			this.server.addService(svc.definition, svc.impl);
 			this.info(`Mounted gRPC service: ${svc.name}`);
 		}
 
-		this.inited = true;
+		this.initedRouters = true;
 		return this;
+	}
+
+	/**
+	 * Добавить ORM-модуль к приложению.
+	 * @param orm ORM-модуль, который будет подключаться к БД.
+	 */
+	addOrm(orm: OrmDatabaseModule): this {
+		this.orms.push(orm);
+		return this;
+	}
+
+	async initDatabases(): Promise<void> {
+		if (this.initedDatabases) return;
+
+		// Коннект ко всем БД ДО старта gRPC
+		for (const orm of this.orms) {
+			this.info(`Connecting to database: ${orm.getName()}`);
+			await orm.connect();
+			this.info(`Connected to database: ${orm.getName()}`);
+		}
+
+		this.initedDatabases = true;
 	}
 
 	/**
@@ -138,8 +174,14 @@ export class App extends BaseModule {
 	async start(): Promise<void> {
 		if (this.started) return;
 
-		if (!this.inited) {
+		// Монтирование роутеров ДО старта gRPC
+		if (!this.initedRouters) {
 			this.initRouters();
+		}
+
+		// Подключение к БД ДО старта gRPC
+		if (!this.initedDatabases) {
+			await this.initDatabases();
 		}
 
 		await new Promise<void>((resolve, reject) => {
@@ -165,6 +207,11 @@ export class App extends BaseModule {
 		if (!this.started) return;
 
 		const deadline = Date.now() + this.gracefulMs;
+
+		// Отключение от всех БД ПОСЛЕ остановки gRPC
+		for (const orm of this.orms) {
+			await orm.disconnect();
+		}
 
 		await new Promise<void>(resolve => {
 			let done = false;

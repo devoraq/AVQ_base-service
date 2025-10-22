@@ -19,3 +19,6 @@ export * from './Controller.module';
 export * from './Service.module';
 export * from './OrmDatabase.module';
 export * from './TypeOrmPostgres.module';
+
+// export * from './Database.module';
+// export * from './Repository.module';

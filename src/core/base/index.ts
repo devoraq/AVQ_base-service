@@ -14,3 +14,4 @@ export * from './Base.module';
 
 // extends BaseModule
 export * from './Middleware.module';
+export * from './Router.module';

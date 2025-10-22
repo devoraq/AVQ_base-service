@@ -3,6 +3,7 @@
  * @module core/types
  */
 
+export * from './database';
 export * from './logger';
 export * from './router';
 

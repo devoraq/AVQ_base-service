@@ -17,3 +17,5 @@ export * from './Middleware.module';
 export * from './Router.module';
 export * from './Controller.module';
 export * from './Service.module';
+export * from './OrmDatabase.module';
+export * from './TypeOrmPostgres.module';

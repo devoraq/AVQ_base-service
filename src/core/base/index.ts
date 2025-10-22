@@ -10,3 +10,4 @@ export * from './Core.module';
 
 // extends CoreModule
 export * from './Util.module';
+export * from './Base.module';

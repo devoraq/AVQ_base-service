@@ -21,7 +21,7 @@
  */
 export const DATABASE_CONFIG = {
 	/** URL подключения к базе данных. */
-	URL: Bun.env.DATABASE_URL || 'postgres://user:pass@localhost:5432/avq',
+	URL: Bun.env.DATABASE_URL || 'postgres://postgres:pass@localhost:5432/avq',
 	/** Название базы данных. */
 	DB_NAME: Bun.env.DATABASE_NAME || 'avq',
 	/** Режим логирования запросов к базе данных. */

@@ -31,7 +31,7 @@ import {
  * ! my imports
  */
 import { BaseModule, OrmDatabaseModule } from '@core/base';
-import { EModuleType } from '@core/types';
+import { EModuleType, EOrmStatus } from '@core/types';
 import { SERVER_CONFIG } from '@config';
 
 /**
@@ -161,7 +161,12 @@ export class App extends BaseModule {
 		for (const orm of this.orms) {
 			this.info(`Connecting to database: ${orm.getName()}`);
 			await orm.connect();
-			this.info(`Connected to database: ${orm.getName()}`);
+			if (orm.getStatus() === EOrmStatus.ERROR) {
+				this.error(`ORM ${orm.getName()} not connected.`);
+				return;
+			} else if (orm.getStatus() === EOrmStatus.CONNECTED) {
+				this.info(`Connected to database: ${orm.getName()}`);
+			}
 		}
 
 		this.initedDatabases = true;
@@ -182,6 +187,11 @@ export class App extends BaseModule {
 		// Подключение к БД ДО старта gRPC
 		if (!this.initedDatabases) {
 			await this.initDatabases();
+
+			if (!this.initedDatabases) {
+				this.error('Databases not connected.');
+				process.exit(1);
+			}
 		}
 
 		await new Promise<void>((resolve, reject) => {

@@ -16,7 +16,8 @@
 			"@core/*": ["./core/*"],
 			"@modules/*": ["./modules/*"],
 			"@proto/*": ["types/generated/*"]
-		}
+		},
+		"useUnknownInCatchVariables": true
 	},
 	"typeRoots": ["./node_modules/@types"],
 	"include": ["src"]

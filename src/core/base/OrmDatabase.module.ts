@@ -7,6 +7,11 @@
  */
 
 /**
+ * ! lib imports
+ */
+import { QueryFailedError } from 'typeorm';
+
+/**
  * ! my imports
  */
 import { DATABASE_CONFIG } from '@config';
@@ -17,6 +22,7 @@ import {
 	OrmRetryOptions,
 	type IOrmDatabaseModule
 } from '@core/types';
+import { toOrmConnectError } from '@core/error/Errors.classify';
 
 export abstract class OrmDatabaseModule<
 		TDataSource = unknown,
@@ -67,24 +73,52 @@ export abstract class OrmDatabaseModule<
 		let attempt = 0;
 		let delay = baseDelayMs;
 
-		// 0 = бесконечно
-		while (maxAttempts === 0 || attempt < maxAttempts) {
-			attempt++;
-			try {
-				await this.doConnect();
-				this.status = EOrmStatus.CONNECTED;
-				this.info(`ORM connected: ${this.ormName} (attempt #${attempt})`);
-				return;
-			} catch (e) {
-				this.warn(`ORM connect failed: ${this.ormName} (attempt #${attempt})`, {
-					details: { error: String(e) }
-				});
-				this.status = EOrmStatus.ERROR;
-				if (maxAttempts !== 0 && attempt >= maxAttempts) throw e;
-				await new Promise(r => setTimeout(r, Math.min(delay, maxDelayMs)));
-				delay = Math.min(delay * factor, maxDelayMs);
-				this.status = EOrmStatus.CONNECTING;
+		try {
+			// 0 = бесконечно
+			while (maxAttempts === 0 || attempt < maxAttempts) {
+				attempt++;
+				try {
+					await this.doConnect();
+					this.status = EOrmStatus.CONNECTED;
+					this.info(`ORM connected: ${this.ormName} (attempt #${attempt})`);
+					return;
+				} catch (e: unknown) {
+					const dbErr = toOrmConnectError(e); // ← строго типизировано
+					this.warn(
+						`ORM connect failed: ${this.ormName} (attempt #${attempt})`,
+						{
+							details: {
+								kind: dbErr.kind,
+								code: dbErr.code,
+								driver: dbErr.driver,
+								retryable: dbErr.retryable,
+								cause: dbErr.cause,
+								errorMessage: dbErr.message,
+								errorName: dbErr.name,
+								errorOriginal: dbErr.original,
+								errorStack: dbErr.stack
+							},
+							error: dbErr.message
+						}
+					);
+
+					this.status = EOrmStatus.ERROR;
+
+					// если по коду нельзя повторить, то бросаем ошибку
+					if (!dbErr.retryable) throw dbErr;
+
+					if (maxAttempts !== 0 && attempt >= maxAttempts) throw dbErr;
+
+					await new Promise(r => setTimeout(r, Math.min(delay, maxDelayMs)));
+					delay = Math.min(delay * factor, maxDelayMs);
+					this.status = EOrmStatus.CONNECTING;
+				}
 			}
+		} catch (error: unknown) {
+			this.error(`ORM connect error: ${this.ormName}`, {
+				details: { error: String(error) }
+			});
+			this.status = EOrmStatus.ERROR;
 		}
 	}
 

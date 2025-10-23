@@ -1,5 +1,9 @@
 /**
  * @file index.ts
+ * @module index
+ *
+ * @description
+ * Запуск приложения
  */
 
 /**

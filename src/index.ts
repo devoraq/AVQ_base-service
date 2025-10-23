@@ -24,6 +24,20 @@ async function main() {
 	app.addRouter('Health', HealthServiceService, healthRouter.asServiceImpl());
 
 	await app.start();
+
+	const stop = async () => {
+		await app.stop();
+		await orm.disconnect();
+		process.exit(0);
+	};
+	process.on('SIGINT', stop);
+	process.on('SIGTERM', stop);
 }
 
-main();
+main().catch(async e => {
+	console.error(e);
+	try {
+		await orm.disconnect();
+	} catch {}
+	process.exit(1);
+});
